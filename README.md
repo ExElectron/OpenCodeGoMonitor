@@ -158,10 +158,3 @@ Cookie 为 `@hapi/iron` 加密会话，会过期。重新从浏览器复制最�
 本项目采用 **[MIT License](LICENSE)** 开源。
 欢迎 Fork、修改或集成到自己的项目中，保留版权声明即可。
 
----
-
-## 💬 开发者碎碎念 (ExElectron's Dev Log)
-
-说来惭愧，这个项目的诞生同样源于一场意外——某天在研究 opencode.ai 的 usage 页面时，发现它竟然没有传统 REST API，而是用 SolidStart 的 Server Function + seroval 序列化协议在「假装调用本地函数」。于是我和 **Claude Code + DeepSeek-V4-Flash-0731** 一起，从浏览器 DevTools 里逐字节逆向出了请求体与响应的完整格式，又用纯 Python 重写了编解码器（原版参考实现依赖 Node.js，我不想为了一个 GUI 工具背上 Node 运行时）。
-
-这个项目教会我三件事：**协议逆向要敬畏每一个字节**（成本单位错了会差 8 个数量级）、**防重设计要双保险**、**GUI 卡顿的根源永远是同步 I/O**。如果你觉得它有用，欢迎 Star；如果你发现函数 ID 又失效了——记得用设置页的「恢复函数ID」按钮，那是我们留给未来的逃生通道 😄
