@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 敏感数据（绝不入库）
+*.cookie
+cookie.txt
+**/cookie*.txt
+
+# 运行产物
+*.log
+*.xlsx
+*.csv
+exports/
+opencode_usage/
+opencode_usage_调用记录.xlsx
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
