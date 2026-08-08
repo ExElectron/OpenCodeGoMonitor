@@ -23,6 +23,10 @@ build/
 dist/
 *.spec
 
+# 发布产物
+*.zip
+RELEASE_NOTES.md
+
 # 编辑器 / 系统
 .vscode/
 .idea/
