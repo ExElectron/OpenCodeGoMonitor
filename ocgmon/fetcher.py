@@ -132,15 +132,22 @@ class UsageFetcher:
             raise FetchError(f"响应解析失败：{e}", "接口格式可能已变更，可尝试『恢复函数ID』。")
 
     def fetch_all(self, on_progress=None, cancel_flag: threading.Event = None,
-                  start_page: int = 0, max_pages: int = 2000) -> list:
-        """分页拉取全部记录。
+                  start_page: int = 0, max_pages: int = 2000,
+                  known_ids: set = None) -> tuple:
+        """分页拉取全部记录（增量感知）。
 
-        on_progress(page, records_this_page, total_so_far) 回调；
-        返回全部原始记录列表。
+        on_progress(page, new_records_this_page, total_so_far) 回调。
+
+        known_ids：已入库记录的 id 集合。接口按时间**最新→最旧**分页，
+        当某一页的记录**全部**命中 known_ids 时，说明后续页必然已同步，
+        立即提前停止（增量同步优化）。
+
+        返回 (records, early_stopped)；records 仅包含未入库的新记录。
         """
         all_records = []
         page = start_page
         consecutive_fail = 0
+        early_stopped = False
         while page < max_pages:
             if cancel_flag is not None and cancel_flag.is_set():
                 raise FetchError("同步已由用户取消")
@@ -162,17 +169,29 @@ class UsageFetcher:
                 continue
             if not records:                       # 空页 = 最后一页
                 break
-            all_records.extend(records)
+            # 增量过滤：区分新记录与已同步记录
+            new_page = []
+            dup = 0
+            for r in records:
+                if known_ids is not None and r.get("id") in known_ids:
+                    dup += 1
+                else:
+                    new_page.append(r)
+            all_records.extend(new_page)
             if on_progress:
                 try:
-                    on_progress(page, len(records), len(all_records))
+                    on_progress(page, len(new_page), len(all_records))
                 except Exception:
                     pass
             if len(records) < PAGE_SIZE:          # ★ 分页终止条件（文档 2.6）
                 break
+            # ★ 增量停止条件：整页全部为已同步记录 → 后续页必然已同步
+            if known_ids is not None and dup == len(records):
+                early_stopped = True
+                break
             page += 1
             time.sleep(self.delay)
-        return all_records
+        return all_records, early_stopped
 
 
 # ---------------------------------------------------------------------------
@@ -246,14 +265,21 @@ class SyncWorker(QThread):
             def on_progress(page, n, total):
                 self.progress.emit(page, n, total)
 
-            raw = fetcher.fetch_all(on_progress=on_progress, cancel_flag=self._cancel)
-            self.stage.emit(f"抓取完成，共 {len(raw)} 条，正在写入数据库…")
+            # 增量同步：加载已入库记录 ID 集合，遇到整页已同步时提前停止
+            known_ids = self._db.all_ids()
+            raw, early_stopped = fetcher.fetch_all(
+                on_progress=on_progress, cancel_flag=self._cancel, known_ids=known_ids)
+            if early_stopped:
+                self.stage.emit(
+                    f"检测到后续页均为已同步记录，提前停止；本次共 {len(raw)} 条新记录，正在写入数据库…")
+            else:
+                self.stage.emit(f"抓取完成，共 {len(raw)} 条，正在写入数据库…")
             inserted, skipped = self._db.insert_records(
                 [seroval.normalize_record(r) for r in raw])
             self.finished_ok.emit({
                 "inserted": inserted, "skipped": skipped,
                 "total_fetched": len(raw), "pages": (len(raw) // PAGE_SIZE) + 1,
-                "workspace_id": wid,
+                "workspace_id": wid, "early_stopped": early_stopped,
             })
         except FetchError as e:
             self.failed.emit(e.friendly, e.KIND)

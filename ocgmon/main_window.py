@@ -149,15 +149,16 @@ class MainWindow(QMainWindow):
     def _on_sync_done(self, summary):
         self.sync_progress.setVisible(False)
         now = time.strftime("%Y-%m-%d %H:%M:%S")
+        extra = "（已是最新数据，提前停止抓取）" if summary.get("early_stopped") else ""
         self.settings.update({
             "last_sync": now,
             "last_sync_ok": True,
-            "last_sync_message": f"新增 {summary['inserted']:,} 条，去重 {summary['skipped']:,} 条",
+            "last_sync_message": f"新增 {summary['inserted']:,} 条，去重 {summary['skipped']:,} 条{extra}",
         })
         self.sync_lbl.setText(f"✅ 同步完成 {now}: 新增 {summary['inserted']:,} 条，"
-                              f"去重跳过 {summary['skipped']:,} 条")
+                              f"去重跳过 {summary['skipped']:,} 条{extra}")
         self.tray.showMessage("同步完成",
-                              f"新增 {summary['inserted']:,} 条记录，去重 {summary['skipped']:,} 条",
+                              f"新增 {summary['inserted']:,} 条记录，去重 {summary['skipped']:,} 条{extra}",
                               QSystemTrayIcon.Information, 5000)
         self._after_data_change()
         self._check_alerts()

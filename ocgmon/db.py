@@ -220,6 +220,15 @@ class Database:
             finally:
                 conn.close()
 
+    def all_ids(self) -> set:
+        """全部已入库记录的 id 集合（用于增量同步比对，数万条以内内存开销可忽略）。"""
+        with self._lock:
+            conn = self._conn()
+            try:
+                return {r[0] for r in conn.execute("SELECT id FROM usage_records")}
+            finally:
+                conn.close()
+
     def count(self, f: dict = None) -> int:
         where, params = self.build_where(f or {})
         with self._lock:
