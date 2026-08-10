@@ -7,7 +7,7 @@ SolidStart Server Function + seroval 协议实现数据获取。
 
 APP_NAME = "OCGMonitor"
 APP_TITLE = "OpenCode Go 使用记录监控"
-APP_VERSION = "1.0.1"
+APP_VERSION = "1.0.2"
 
 # 默认 Server Function ID（随前端构建变化，失效时可在设置中一键恢复）
 SERVER_ID_USAGE = "bfd684bfc2e4eed05cd0b518f5e4eafd3f3376e3938abb9e536e7c03df831e5c"

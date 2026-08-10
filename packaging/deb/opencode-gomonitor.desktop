@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=OpenCode Go 使用记录监控
+GenericName=OpenCode Go usage monitor
+Comment=监控 opencode.ai 使用记录（用量看板 / 明细 / 统计 / 导出）
+Exec=ocgmonitor
+Icon=ocgmonitor
+Terminal=false
+Categories=Utility;Monitor;
+StartupWMClass=OCGMonitor

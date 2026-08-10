@@ -16,6 +16,30 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 from ocgmon.theme import chart_colors
 
 
+def _setup_cjk_font() -> None:
+    """为 matplotlib 配置可渲染中文的字体（跨平台）。
+
+    Linux 优先用 Noto Sans CJK SC，Windows 用微软雅黑/黑体；
+    找不到任何 CJK 字体时回退 matplotlib 默认（DejaVu）。
+    """
+    from matplotlib import font_manager, rcParams
+
+    candidates = [
+        "Noto Sans CJK SC", "Noto Sans CJK TC", "Source Han Sans SC",
+        "WenQuanYi Micro Hei", "WenQuanYi Zen Hei", "Microsoft YaHei",
+        "SimHei", "PingFang SC",
+    ]
+    available = {f.name for f in font_manager.fontManager.ttflist}
+    chosen = next((c for c in candidates if c in available), None)
+    if chosen:
+        rcParams["font.sans-serif"] = [chosen, "DejaVu Sans"]
+        rcParams["font.family"] = "sans-serif"
+    rcParams["axes.unicode_minus"] = False
+
+
+_setup_cjk_font()
+
+
 class ChartWidget(QWidget):
     """一个自带工具栏的可交互图表容器。click_payload(str) 供外部联动。"""
 

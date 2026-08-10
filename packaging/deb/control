@@ -1,0 +1,13 @@
+Package: @PACKAGE@
+Version: @VERSION@
+Section: utils
+Priority: optional
+Architecture: @ARCH@
+Maintainer: ExElectron <exelectron@users.noreply.github.com>
+Depends: libc6 (>= 2.34), libgl1, libegl1, libxkbcommon0, libxcb1, libxcb-cursor0, libxcb-icccm4, libxcb-keysyms1, libxcb-shape0, libxcb-render-util0, libxcb-xinerama0, libxcomposite1, libxdamage1, libxfixes3, libxrender1, libxi6, libxtst6, libdbus-1-3, libfontconfig1, libglib2.0-0
+Homepage: https://github.com/ExElectron/OpenCodeGoMonitor
+Description: OpenCode Go usage monitoring desktop app (Linux amd64)
+ Fetches opencode.ai usage records via the SolidStart Server Function +
+ seroval protocol and provides a local PySide6 dashboard: overview,
+ records, analytics, multi-sheet export and settings. Bundled PyInstaller
+ build, self-contained (no system Python runtime required).

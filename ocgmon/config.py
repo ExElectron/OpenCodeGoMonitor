@@ -1,11 +1,17 @@
 # -*- coding: utf-8 -*-
-"""配置持久化：JSON 文件存放在 %APPDATA%/OCGMonitor/。
+"""配置持久化。
+
+平台路径约定：
+- Windows：%APPDATA%/OCGMonitor/（config.json / monitor.db / exports 同目录）
+- Linux（XDG 规范）：配置在 ~/.config/OCGMonitor/，数据在 ~/.local/share/OCGMonitor/
+首次在 Linux 运行时会把旧的 ~/OCGMonitor 数据自动迁移到 XDG 目录。
 
 注意：Cookie 属于敏感凭据，明文保存在本机配置文件中（与浏览器保存 Cookie 同级别），
 请勿将 config.json 分享给他人。
 """
 import json
 import os
+import shutil
 import threading
 import time
 
@@ -46,25 +52,73 @@ DEFAULTS = {
 }
 
 
-def appdata_dir() -> str:
-    base = os.environ.get("APPDATA") or os.path.expanduser("~")
+def _legacy_dir() -> str:
+    """Linux 上早期版本写入的 ~/OCGMonitor 目录（供迁移）。"""
+    p = os.path.join(os.path.expanduser("~"), APP_NAME)
+    return p if os.path.isdir(p) else ""
+
+
+def _migrate_if_needed(target: str, name: str) -> None:
+    """把旧 ~/OCGMonitor 中的数据迁移到 XDG 目标目录（仅 Linux、仅首次）。"""
+    if os.name == "nt":
+        return
+    src = os.path.join(_legacy_dir(), name) if _legacy_dir() else ""
+    if not src or not os.path.exists(src) or os.path.exists(target):
+        return
+    try:
+        os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+        if os.path.isdir(src):
+            shutil.copytree(src, target)
+        else:
+            shutil.copy2(src, target)
+    except OSError:
+        pass  # 迁移失败不影响启动，仅本次会话读不到旧数据
+
+
+def config_dir() -> str:
+    """配置目录：Windows=%APPDATA%/OCGMonitor；Linux=$XDG_CONFIG_HOME/OCGMonitor。"""
+    if os.name == "nt":
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    else:
+        base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
     d = os.path.join(base, APP_NAME)
     os.makedirs(d, exist_ok=True)
     return d
 
 
+def data_dir() -> str:
+    """数据目录：Windows=%APPDATA%/OCGMonitor；Linux=$XDG_DATA_HOME/OCGMonitor。"""
+    if os.name == "nt":
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
+    d = os.path.join(base, APP_NAME)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def appdata_dir() -> str:
+    """兼容入口：返回数据目录。"""
+    return data_dir()
+
+
 def db_path() -> str:
-    return os.path.join(appdata_dir(), "monitor.db")
+    target = os.path.join(data_dir(), "monitor.db")
+    _migrate_if_needed(target, "monitor.db")
+    return target
 
 
 def config_path() -> str:
-    return os.path.join(appdata_dir(), "config.json")
+    target = os.path.join(config_dir(), "config.json")
+    _migrate_if_needed(target, "config.json")
+    return target
 
 
 def exports_dir() -> str:
-    d = os.path.join(appdata_dir(), "exports")
-    os.makedirs(d, exist_ok=True)
-    return d
+    target = os.path.join(data_dir(), "exports")
+    _migrate_if_needed(target, "exports")
+    os.makedirs(target, exist_ok=True)
+    return target
 
 
 class Settings:
