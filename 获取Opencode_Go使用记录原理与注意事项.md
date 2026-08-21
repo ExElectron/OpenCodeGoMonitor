@@ -431,7 +431,7 @@ main();
 | `GET /usage` 返回登录页（OpenAuth） | Cookie 缺失/过期 | 重新获取有效 Cookie |
 | `POST /_server` 返回 `{"status":500,"message":"HTTPError"}` | seroval 请求体格式错误（节点类型/features 不对）或函数 ID 失效 | 核对 2.4 的节点格式；确认 `X-Server-Id` |
 | 响应为 `new RangeError("Invalid time value")` | 函数 ID 实际指向 getCosts（参数结构不同），常见于按顺序提取 ID 的新版前端 | 按 2.3 用变量名重新识别 usage.list 的 ID |
-| 解析报「不支持的构造函数 new RangeError()」 | 解析器未处理非 Error 的错误构造函数（旧版本缺陷，v1.0.2 已修复） | 升级到 v1.0.2+ |
+| 解析报「不支持的构造函数 new RangeError()」 | 解析器未处理非 Error 的错误构造函数（旧版本缺陷，v1.0.3 已修复） | 升级到 v1.0.3+ |
 | 解析时 `ReferenceError: $R is not defined` | 未注入 `self === globalThis` | 按 2.5 注入后重试（数据其实已填充，可忽略异常） |
 | 解析返回 0 条 | 读取了 `$R["server-fn:N"]`（空容器）而不是 `[...][0]` | 数据在 `$R["server-fn:N"][0]` |
 | `Invalid time value`（RangeError） | 调用了 `getCosts` 但参数结构不对 | 从 bundle 反推参数，或忽略（不影响列表数据） |
