@@ -85,7 +85,21 @@ bfd684bfc2e4eed05cd0b518f5e4eafd3f3376e3938abb9e536e7c03df831e5c
 
 ### 2.3 如何定位 Server Function ID
 
-当前端更新导致函数 ID 失效时，需要从前端产物中重新提取：
+当前端更新导致函数 ID 失效时，需要从前端产物中重新提取。
+
+> ⚠️ **2026-08 实测修正（重要）**：
+> 1. **不能按出现顺序取 ID**。早期版本 usage 组件 bundle 中 `usage.list` 排在第一个，
+>    但 2026-08 版本 `getCosts` 排在了前面。必须**按赋值目标变量名识别**：
+>    `const getUsageInfo_1 = createServerReference("<64hex>")` → usage.list；
+>    `const getCosts_1 = createServerReference("<64hex>")` → getCosts。
+> 2. **chunk 文件名不再含 "usage" 字样**。新版入口 bundle 中 chunk 是纯哈希名
+>    （如 `./index-CtXx_w0m.js`），需从路由表定位：
+>    找到 `"src": "src/routes/workspace/[id]/usage/index.tsx?..."` 后就近的
+>    `import("./index-CtXx_w0m.js")` 即为 usage 组件 chunk。
+>
+> 把 getCosts 的 ID 当成 usage.list 调用时，服务端返回
+> `Object.assign(new RangeError("Invalid time value"), {...})`（因为 getCosts 需要时间范围参数），
+> 表现为"同步失败/响应解析失败"而非 404，容易误判为 Cookie 问题。
 
 ```bash
 # ① 下载 usage 页面 HTML（需带 Cookie，否则只会拿到登录页）
@@ -94,18 +108,26 @@ curl -s "https://opencode.ai/workspace/<WORKSPACE_ID>/usage" \
   -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ..." \
   -o page.html
 
-# ② 从 HTML 中找出页面加载的所有 JS bundle 地址
+# ② 从 HTML 中找出入口 bundle 地址
 grep -oE 'src="[^"]*\.js"' page.html
 
-# ③ 下载入口 bundle，搜索 usage 路由 chunk 的文件名
-#    （entry-client-*.js 中搜 "usage/index.tsx" 或 "workspace/usage" 得到对应 index-*.js）
+# ③ 下载入口 bundle，从路由表中定位 usage 组件 chunk
+#    搜索 "workspace/[id]/usage/index.tsx"，其后不远处的 import("./xxx.js") 就是 chunk 名
 curl -s "https://opencode.ai/_build/assets/<entry-client-xxx>.js" -o entry.js
-grep -oE '"[a-z0-9-]+-index[^"]*\.js"|usage[^"]*\.js' entry.js
 
-# ④ 下载 usage 组件 bundle，提取 server function ID
-curl -s "https://opencode.ai/_build/assets/<usage-index-xxx>.js" -o usage.js
-grep -oE 'createServerReference\("[a-f0-9]{64}"\)' usage.js
-# 第一个出现的是 usage.list（调用记录），第二个是 getCosts（成本图表）
+# ④ 下载 usage 组件 bundle，按变量名提取 server function ID
+curl -s "https://opencode.ai/_build/assets/index-CtXx_w0m.js" -o usage.js
+grep -oE '\w+ ?= ?createServerReference\("[a-f0-9]{64}"\)' usage.js
+#    getUsageInfo_* = createServerReference(...)  → usage.list（调用记录）
+#    getCosts_*     = createServerReference(...)  → getCosts（成本图表）
+```
+
+2026-08-21 实测值（会随发版变化）：
+
+```
+usage.list: bfd684bfc2e4eed05cd0b518f5e4eafd3f3376e3938abb9e536e7c03df831e5c
+getCosts  : 15702f3a12ff8bff357f8c2aa154a17e65b746d5f6b96adc9002c86ee0c15205
+usage 组件 chunk: index-CtXx_w0m.js（纯哈希命名，不含 "usage" 字样）
 ```
 
 同时可在 bundle 中搜索以下关键信息：
@@ -408,6 +430,8 @@ main();
 |---|---|---|
 | `GET /usage` 返回登录页（OpenAuth） | Cookie 缺失/过期 | 重新获取有效 Cookie |
 | `POST /_server` 返回 `{"status":500,"message":"HTTPError"}` | seroval 请求体格式错误（节点类型/features 不对）或函数 ID 失效 | 核对 2.4 的节点格式；确认 `X-Server-Id` |
+| 响应为 `new RangeError("Invalid time value")` | 函数 ID 实际指向 getCosts（参数结构不同），常见于按顺序提取 ID 的新版前端 | 按 2.3 用变量名重新识别 usage.list 的 ID |
+| 解析报「不支持的构造函数 new RangeError()」 | 解析器未处理非 Error 的错误构造函数（旧版本缺陷，v1.0.2 已修复） | 升级到 v1.0.2+ |
 | 解析时 `ReferenceError: $R is not defined` | 未注入 `self === globalThis` | 按 2.5 注入后重试（数据其实已填充，可忽略异常） |
 | 解析返回 0 条 | 读取了 `$R["server-fn:N"]`（空容器）而不是 `[...][0]` | 数据在 `$R["server-fn:N"][0]` |
 | `Invalid time value`（RangeError） | 调用了 `getCosts` 但参数结构不对 | 从 bundle 反推参数，或忽略（不影响列表数据） |

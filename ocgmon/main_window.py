@@ -137,6 +137,7 @@ class MainWindow(QMainWindow):
         self._sync_worker.stage.connect(self.sync_lbl.setText)
         self._sync_worker.finished_ok.connect(self._on_sync_done)
         self._sync_worker.failed.connect(self._on_sync_failed)
+        self._sync_worker.id_recovered.connect(self._on_server_id_recovered)
         self.sync_progress.setVisible(True)
         self.sync_progress.setRange(0, 0)
         self.sync_lbl.setText("正在同步…")
@@ -145,6 +146,15 @@ class MainWindow(QMainWindow):
     def _on_sync_progress(self, page, n, total):
         self.sync_lbl.setText(f"正在抓取第 {page + 1} 页… 已获取 {total:,} 条")
         self.sync_progress.setRange(0, 0)
+
+    def _on_server_id_recovered(self, new_id):
+        """同步中自动恢复的函数 ID：持久化到配置并刷新设置页输入框。"""
+        self.settings.set("server_id_usage", new_id)
+        try:
+            self.tab_settings.server_id_edit.setText(new_id)
+        except Exception:
+            pass
+        self.sync_lbl.setText(f"已自动恢复 Server Function ID: {new_id[:16]}…")
 
     def _on_sync_done(self, summary):
         self.sync_progress.setVisible(False)

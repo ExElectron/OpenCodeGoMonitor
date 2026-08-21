@@ -35,7 +35,7 @@ WEBHOOK_HINTS = {
     "dingtalk": "https://oapi.dingtalk.com/robot/send?access_token=…",
     "feishu": "https://open.feishu.cn/open-apis/bot/v2/hook/…",
     "wecom": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…",
-    "telegram": "https://api.telegram.org/bot… （请把完整 URL 粘贴到『恢复函数ID』旁的链接？不，填 bot token）",
+    "telegram": "https://api.telegram.org/bot<token>/sendMessage?chat_id=<id>",
     "custom": "POST JSON: {\"text\": \"…\"}",
 }
 

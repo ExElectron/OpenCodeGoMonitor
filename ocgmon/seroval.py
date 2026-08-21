@@ -293,10 +293,13 @@ class _Parser:
             if isinstance(s, str):
                 return s          # ISO 时间字符串
             return ""
-        if v == "Error":
+        if v == "Error" or v.endswith("Error"):
+            # 服务端业务错误：new Error / new RangeError / new TypeError ...
+            # 例如函数 ID 指向 getCosts 被误调用时返回 new RangeError("Invalid time value")
             msg = self.parse_value()
             self.expect("punct", ")")
-            raise ApiError(str(msg), hint="服务端返回错误（可能 Cookie 无权限或 Server Function ID 失效）")
+            raise ApiError(f"{v}: {msg}" if v != "Error" else str(msg),
+                           hint="服务端返回错误（可能 Cookie 无权限或 Server Function ID 失效）")
         if v == "Number":
             s = self.parse_value()
             self.expect("punct", ")")

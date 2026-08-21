@@ -9,6 +9,7 @@ venv/
 *.cookie
 cookie.txt
 **/cookie*.txt
+_probe/
 
 # 运行产物
 *.log

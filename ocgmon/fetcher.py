@@ -127,6 +127,11 @@ class UsageFetcher:
                 raise CookieInvalidError(f"Cookie 对应的账号与工作区不匹配：{e}")
             if "unauthor" in str(e).lower() or "login" in str(e).lower() or "session" in str(e).lower():
                 raise CookieInvalidError(f"{e}")
+            if "time value" in str(e).lower() or "rangeerror" in str(e).lower():
+                # 函数 ID 实际指向 getCosts（参数结构不同）时的典型错误
+                raise ServerIdError(
+                    "Server Function ID 指向了错误的函数（getCosts）",
+                    "请点击『恢复函数ID』重新提取 usage.list 的函数 ID。")
             raise ServerIdError(f"服务端业务错误：{e}")
         except seroval.SerovalError as e:
             raise FetchError(f"响应解析失败：{e}", "接口格式可能已变更，可尝试『恢复函数ID』。")
@@ -196,16 +201,77 @@ class UsageFetcher:
 
 # ---------------------------------------------------------------------------
 # 函数 ID 自动恢复（文档 2.3：从前端 bundle 提取）
+#
+# 2026-08 实测修正：
+# 1. chunk 发现：入口 bundle 中 usage 路由注册形如
+#      "src": "src/routes/workspace/[id]/usage/index.tsx?pick=...",
+#      "build": () => __vitePreload(() => import("./index-CtXx_w0m.js"), ...)
+#    chunk 文件名是纯哈希（不含 "usage"），必须从路由 src 就近向后找 import("./xxx.js")。
+# 2. ID 识别：usage 组件 chunk 中两个 createServerReference 的**顺序不固定**
+#    （2026-08 版本 getCosts 在前）。必须按赋值目标变量名识别：
+#      const getCosts_1     = createServerReference("<64hex>");   → getCosts
+#      const getUsageInfo_1 = createServerReference("<64hex>");   → usage.list
 # ---------------------------------------------------------------------------
-RE_SERVER_REF = re.compile(r'createServerReference\("([a-f0-9]{64})"\)')
 RE_ENTRY_BUNDLE = re.compile(r'src="([^"]*\.js)"')
-RE_USAGE_CHUNK = re.compile(r'"([a-z0-9-]*usage[^"]*\.js)"|"([a-z0-9-]+-index-[^"]*\.js)"')
+# 路由表：usage 路由的组件源路径 + 其后不远处的动态 import chunk
+RE_USAGE_ROUTE_CHUNK = re.compile(
+    r'workspace/\[id\]/usage/index\.tsx.{0,600}?import\(\s*(?:/\*[^*]*\*/)?\s*"([^"]+\.js)"',
+    re.S)
+# 旧版兜底：名字里直接含 usage 的 chunk / -index- chunk
+RE_USAGE_CHUNK = re.compile(r'"([^"]*usage[^"]*\.js)"|"([a-z0-9-]+-index-[^"]*\.js)"')
+# createServerReference 及其赋值目标变量名：const getUsageInfo_1 = createServerReference("<hex>")
+RE_SERVER_REF_NAMED = re.compile(
+    r'(?:const\s+|var\s+|let\s+)?(\w+)(?:_\d+)?\s*=\s*createServerReference\("([a-f0-9]{64})"\)')
+
+
+def _resolve_asset_url(entry_url: str, chunk: str) -> str:
+    """把 bundle 内的相对 chunk 引用（'./index-x.js'、'_build/assets/x.js'）解析为绝对 URL。"""
+    if chunk.startswith("http"):
+        return chunk
+    chunk = chunk.lstrip("./")
+    if chunk.startswith("_build/"):
+        return f"https://opencode.ai/{chunk}"
+    base = entry_url.rsplit("/", 1)[0]          # 入口 bundle 所在目录
+    return f"{base}/{chunk}"
+
+
+def _find_usage_chunk(entry: str) -> str:
+    """从入口 bundle 中定位 usage 路由组件 chunk 文件名。"""
+    m = RE_USAGE_ROUTE_CHUNK.search(entry)
+    if m and m.group(1):
+        return m.group(1)
+    for m in RE_USAGE_CHUNK.finditer(entry):     # 旧版兜底
+        chunk = m.group(1) or m.group(2)
+        if chunk:
+            return chunk
+    raise FetchError("入口 bundle 中未找到 usage 组件 chunk")
+
+
+def _classify_server_refs(chunk_src: str) -> dict:
+    """按变量名识别 usage.list 与 getCosts 的函数 ID。"""
+    refs = {}
+    for name, hex_id in RE_SERVER_REF_NAMED.findall(chunk_src):
+        low = name.lower()
+        if "usageinfo" in low or "usagelist" in low or "getusage" in low:
+            refs.setdefault("usage.list", hex_id)
+        elif "cost" in low:
+            refs.setdefault("getCosts", hex_id)
+        else:
+            refs.setdefault(f"_other:{name}", hex_id)
+    if "usage.list" not in refs:
+        # 兜底：变量名不可识别时，取全部裸 ID，约定第一个非 costs 的为 usage.list
+        all_refs = re.findall(r'createServerReference\("([a-f0-9]{64})"\)', chunk_src)
+        named_costs = {v for k, v in refs.items() if k.startswith("getCosts")}
+        rest = [x for x in all_refs if x not in named_costs]
+        if rest:
+            refs["usage.list"] = rest[0]
+    return refs
 
 
 def extract_server_ids(cookie: str, workspace_id: str) -> dict:
     """从前端产物中重新提取 usage 相关 Server Function ID。
 
-    返回 {"usage.list": <64hex>}（尽力而为，取第一个 createServerReference）。
+    返回 {"usage.list": <64hex>, "getCosts": <64hex>}。
     """
     session = requests.Session()
     session.headers.update({"Cookie": (cookie or "").strip(), "User-Agent": UA})
@@ -217,20 +283,18 @@ def extract_server_ids(cookie: str, workspace_id: str) -> dict:
         assets = RE_ENTRY_BUNDLE.findall(page_html)
         if not assets:
             raise FetchError("页面中未找到 JS bundle")
-        entry = session.get(f"https://opencode.ai{assets[0]}", timeout=30).text
-        chunk = None
-        for m in RE_USAGE_CHUNK.finditer(entry):
-            chunk = m.group(1) or m.group(2)
-            if chunk:
-                break
-        if not chunk:
-            raise FetchError("入口 bundle 中未找到 usage 组件 chunk")
-        chunk_src = session.get(f"https://opencode.ai/_build/assets/{chunk}", timeout=30).text
-        refs = RE_SERVER_REF.findall(chunk_src)
-        if not refs:
-            raise FetchError("usage bundle 中未找到 createServerReference")
-        # 第一个是 usage.list（调用记录），第二个是 getCosts
-        return {"usage.list": refs[0], "getCosts": refs[1] if len(refs) > 1 else ""}
+        entry_path = assets[0]
+        if not entry_path.startswith("http"):
+            entry_path = ("https://opencode.ai" + entry_path) \
+                if entry_path.startswith("/") else f"https://opencode.ai/_build/assets/{entry_path}"
+        entry = session.get(entry_path, timeout=30).text
+        chunk = _find_usage_chunk(entry)
+        chunk_src = session.get(_resolve_asset_url(entry_path, chunk), timeout=30).text
+        refs = _classify_server_refs(chunk_src)
+        if "usage.list" not in refs:
+            raise FetchError("usage bundle 中未找到 createServerReference（usage.list）")
+        return {"usage.list": refs["usage.list"],
+                "getCosts": refs.get("getCosts", "")}
     finally:
         session.close()
 
@@ -245,6 +309,7 @@ class SyncWorker(QThread):
     finished_ok = Signal(dict)                # {inserted, skipped, total_fetched, pages}
     failed = Signal(str, str)                 # message, kind
     stage = Signal(str)                       # 状态文本
+    id_recovered = Signal(str)                # 自动恢复出的新 usage.list 函数 ID
 
     def __init__(self, cookie, workspace_id, server_id, db,
                  delay_ms=300, parent=None):
@@ -260,15 +325,10 @@ class SyncWorker(QThread):
         cookie, wid, sid, delay = self._cfg
         try:
             self.stage.emit("正在连接 opencode.ai 并抓取调用记录…")
-            fetcher = UsageFetcher(cookie, wid, sid, delay_ms=delay)
 
-            def on_progress(page, n, total):
-                self.progress.emit(page, n, total)
+            # 自动恢复：函数 ID 失效/指向错误函数时，从前端 bundle 重新提取并重试一次
+            raw, early_stopped, sid = self._fetch_with_heal(cookie, wid, sid, delay)
 
-            # 增量同步：加载已入库记录 ID 集合，遇到整页已同步时提前停止
-            known_ids = self._db.all_ids()
-            raw, early_stopped = fetcher.fetch_all(
-                on_progress=on_progress, cancel_flag=self._cancel, known_ids=known_ids)
             if early_stopped:
                 self.stage.emit(
                     f"检测到后续页均为已同步记录，提前停止；本次共 {len(raw)} 条新记录，正在写入数据库…")
@@ -285,3 +345,30 @@ class SyncWorker(QThread):
             self.failed.emit(e.friendly, e.KIND)
         except Exception as e:
             self.failed.emit(f"同步异常：{e}", "unknown")
+
+    def _fetch_with_heal(self, cookie, wid, sid, delay):
+        """执行分页抓取；遇 ServerIdError 时自动重新提取函数 ID 并重试一次。"""
+        fetcher = UsageFetcher(cookie, wid, sid, delay_ms=delay)
+
+        def on_progress(page, n, total):
+            self.progress.emit(page, n, total)
+
+        known_ids = self._db.all_ids()
+        try:
+            raw, early_stopped = fetcher.fetch_all(
+                on_progress=on_progress, cancel_flag=self._cancel, known_ids=known_ids)
+            return raw, early_stopped, sid
+        except ServerIdError:
+            if self._cancel.is_set():
+                raise
+            self.stage.emit("函数 ID 失效，正在从前端 bundle 自动恢复…")
+            ids = extract_server_ids(cookie, wid)
+            new_sid = (ids.get("usage.list") or "").strip()
+            if not new_sid or new_sid == sid:
+                raise
+            self.id_recovered.emit(new_sid)
+            self.stage.emit("已恢复函数 ID，重新开始同步…")
+            fetcher2 = UsageFetcher(cookie, wid, new_sid, delay_ms=delay)
+            raw, early_stopped = fetcher2.fetch_all(
+                on_progress=on_progress, cancel_flag=self._cancel, known_ids=known_ids)
+            return raw, early_stopped, new_sid
