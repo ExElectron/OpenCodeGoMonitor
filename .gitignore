@@ -22,7 +22,6 @@ opencode_usage_调用记录.xlsx
 # PyInstaller 构建产物
 build/
 dist/
-*.spec
 
 # 发布产物
 *.zip
